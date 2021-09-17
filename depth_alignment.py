@@ -8,10 +8,13 @@ from interbotix_xs_modules.arm import InterbotixManipulatorXS
 def move(coor):
     bot = InterbotixManipulatorXS("px100", "arm", "gripper")
     
-    bot.arm.set_ee_pose_components(x=round((0.23 + coor[0]),2), y=round((0.26 - coor[2]),2), z=round((0.13 - coor[1]),2))
+    bot.arm.set_ee_pose_components(x=round((0.20 - coor[0]),3), y=round((0.235 - coor[2]),3), z=round((0.15 - coor[1]),3))
     bot.gripper.close()
-    bot.arm.go_to_sleep_pose()
+    bot.arm.go_to_home_pose()
+    bot.arm.set_single_joint_position("waist", -np.pi/2.0)
     bot.gripper.open()
+    bot.arm.go_to_sleep_pose()
+    
 
 
 pipeline = rs.pipeline()
@@ -69,9 +72,9 @@ cv2.createTrackbar('HighS','Control', 240, 255, lambda x:x)
 cv2.createTrackbar('LowV','Control', 28, 255, lambda x:x)
 cv2.createTrackbar('HighV','Control', 240, 255, lambda x:x)
 
-depth_avg_array = []
-x_avg_arr = []
-y_avg_arr= []
+coor_x = []
+coor_y = []
+coor_z = []
 # Streaming loop
 try:
     while True:
@@ -127,26 +130,27 @@ try:
             cy = int(M['m01']/M['m00'])
             
             depth = depth_scale*(depth_image[cy][cx])
-            depth_avg_array.append(depth)
-            x_avg_arr.append(cx)
-            y_avg_arr.append(cy)
-
-            if len(depth_avg_array) > 20:
-                depth_avg_array.pop(0)
-
-            depth_avg = average(depth_avg_array)
-
-            x_avg = average(x_avg_arr)
-            y_avg = average(y_avg_arr)
-            centroid = [x_avg,y_avg]
-            print(depth)
-            coor = np.array(rs.rs2_deproject_pixel_to_point(intr,centroid,depth_avg))
-            cv2.circle(bg_removed,[cx,cy],2,[255,0,0],6)
-            print(coor)
-
             
+            centroid = [cx,cy]
+            print(depth)
+            coor = np.array(rs.rs2_deproject_pixel_to_point(intr,centroid,depth))
+            cv2.circle(bg_removed,[cx,cy],2,[255,0,0],6)
+            
+            
+            coor_x.append(coor[0])
+            coor_y.append(coor[1])
+            coor_z.append(coor[2])
 
+            if len(coor_x)>20:
+                coor_x.pop(0)
+                coor_y.pop(0)
+                coor_z.pop(0)  
 
+            avgx = average(coor_x)
+            avgy = average(coor_y)
+            avgz = average(coor_z)
+            coor_avg = [avgx,avgy,avgz]
+            print(coor_avg)
 
         
         cv2.drawContours(res,contours,-1,[0, 225, 0])
@@ -171,5 +175,5 @@ try:
 finally:
     pipeline.stop() 
 
-move(coor)
-print(coor)
+move(coor_avg)
+print(coor_avg)
