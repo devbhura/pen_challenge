@@ -1,7 +1,18 @@
 # import packages 
+from numpy.lib.function_base import average
 import pyrealsense2 as rs
 import numpy as np 
 import cv2
+from interbotix_xs_modules.arm import InterbotixManipulatorXS
+
+def move(coor):
+    bot = InterbotixManipulatorXS("px100", "arm", "gripper")
+    
+    bot.arm.set_ee_pose_components(x=round((0.23 + coor[0]),2), y=round((0.26 - coor[2]),2), z=round((0.13 - coor[1]),2))
+    bot.gripper.close()
+    bot.arm.go_to_sleep_pose()
+    bot.gripper.open()
+
 
 pipeline = rs.pipeline()
 config = rs.config()
@@ -29,6 +40,9 @@ else:
 
 # Start streaming
 profile = pipeline.start(config)
+pro = profile.get_stream(rs.stream.color)
+intr = pro.as_video_stream_profile().get_intrinsics()
+
 
 # Getting the depth sensor's depth scale (see rs-align example for explanation)
 depth_sensor = profile.get_device().first_depth_sensor()
@@ -46,15 +60,18 @@ clipping_distance = clipping_distance_in_meters / depth_scale
 align_to = rs.stream.color
 align = rs.align(align_to)
 
+
 cv2.namedWindow('Control')
-cv2.createTrackbar('LowH','Control', 0, 180, lambda x:x)
-cv2.createTrackbar('HighH','Control', 0, 180, lambda x:x)
-cv2.createTrackbar('LowS','Control', 0, 255, lambda x:x)
-cv2.createTrackbar('HighS','Control', 0, 255, lambda x:x)
-cv2.createTrackbar('LowV','Control', 0, 255, lambda x:x)
-cv2.createTrackbar('HighV','Control', 0, 255, lambda x:x)
+cv2.createTrackbar('LowH','Control', 30, 180, lambda x:x)
+cv2.createTrackbar('HighH','Control', 160, 180, lambda x:x)
+cv2.createTrackbar('LowS','Control', 60, 255, lambda x:x)
+cv2.createTrackbar('HighS','Control', 240, 255, lambda x:x)
+cv2.createTrackbar('LowV','Control', 28, 255, lambda x:x)
+cv2.createTrackbar('HighV','Control', 240, 255, lambda x:x)
 
-
+depth_avg_array = []
+x_avg_arr = []
+y_avg_arr= []
 # Streaming loop
 try:
     while True:
@@ -98,17 +115,38 @@ try:
         upper_t = np.array([highH,highS,highV])
         mask = cv2.inRange(hsv,lower_t,upper_t)
 
+        
+
         res = cv2.bitwise_and(bg_removed,bg_removed,mask = mask)
         contours, hierarchy = cv2.findContours(mask,cv2.RETR_TREE,cv2.CHAIN_APPROX_SIMPLE)
-        if len(contours) > 0:
+        if len(contours) > 2:
             cnt = max(contours, key  = cv2.contourArea)
             
             M = cv2.moments(cnt)
             cx = int(M['m10']/M['m00'])
             cy = int(M['m01']/M['m00'])
-            centroid = [cx, cy]
-            cv2.circle(bg_removed,centroid,2,[255,0,0],2)
-            print(centroid)
+            
+            depth = depth_scale*(depth_image[cy][cx])
+            depth_avg_array.append(depth)
+            x_avg_arr.append(cx)
+            y_avg_arr.append(cy)
+
+            if len(depth_avg_array) > 20:
+                depth_avg_array.pop(0)
+
+            depth_avg = average(depth_avg_array)
+
+            x_avg = average(x_avg_arr)
+            y_avg = average(y_avg_arr)
+            centroid = [x_avg,y_avg]
+            print(depth)
+            coor = np.array(rs.rs2_deproject_pixel_to_point(intr,centroid,depth_avg))
+            cv2.circle(bg_removed,[cx,cy],2,[255,0,0],6)
+            print(coor)
+
+            
+
+
 
         
         cv2.drawContours(res,contours,-1,[0, 225, 0])
@@ -132,3 +170,6 @@ try:
         
 finally:
     pipeline.stop() 
+
+move(coor)
+print(coor)
